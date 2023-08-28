@@ -15,6 +15,9 @@ extern crate sgx_serialize;
 #[macro_use]
 extern crate sgx_serialize_derive;
 
+#[macro_use]
+extern crate lazy_static;
+
 extern crate sgx_types;
 extern crate sgx_tseal;
 extern crate sgx_tcrypto;
@@ -48,6 +51,7 @@ use std::str;
 use std::vec::Vec;
 use std::convert::TryInto;
 use std::string::String;
+use std::sync::SgxMutex;
 
 use num_bigint::BigUint;
 use bit_vec::BitVec;
@@ -75,8 +79,9 @@ struct RSAKeyData {
 const RSA_DURATION: u64 = 330;
 const ADVANCE_REFRESH_TIME: i64 = 300;
 
-static mut RSA_KEY_DATA: Option<RSAKeyData> = None;
-
+lazy_static! {
+    static ref RSA_KEY_DATA: SgxMutex<Option<RSAKeyData>> = SgxMutex::new(None);
+}
 // extern "C" {
 //     pub fn ocall_get_target_info(
 //         ret_val  : *mut sgx_status_t,
@@ -92,22 +97,15 @@ static mut RSA_KEY_DATA: Option<RSAKeyData> = None;
 //     ) -> sgx_status_t;
 // }
 
-
-fn write_rsa_key(path: &str) -> sgx_status_t {
-    
-
+fn write_rsa_key(path: &str) -> Result<(), sgx_status_t> {
     let helper = SerializeHelper::new();
-    let rsa_key_data;
-    unsafe {
-        rsa_key_data = RSA_KEY_DATA.clone().unwrap();
-        
-    }
+    let rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
 
     let rsa_key_bytes = match helper.encode(rsa_key_data) {
         Some(d) => d,
         None => {
-            println!("encode data failed.");
-            return sgx_status_t::SGX_ERROR_UNEXPECTED;
+            println!("Encode data failed.");
+            return Err(sgx_status_t::SGX_ERROR_UNEXPECTED);
         },
     };
     
@@ -115,7 +113,7 @@ fn write_rsa_key(path: &str) -> sgx_status_t {
         Ok(f) => f,
         Err(_) => {
             println!("SgxFile::create failed.");
-            return sgx_status_t::SGX_ERROR_FILE_CANT_OPEN_RECOVERY_FILE;
+            return Err(sgx_status_t::SGX_ERROR_FILE_CANT_OPEN_RECOVERY_FILE);
         },
     };
 
@@ -123,20 +121,20 @@ fn write_rsa_key(path: &str) -> sgx_status_t {
         Ok(len) => len,
         Err(_) => {
             println!("SgxFile::write failed.");
-            return sgx_status_t::SGX_ERROR_FILE_CANT_OPEN_RECOVERY_FILE;
+            return Err(sgx_status_t::SGX_ERROR_FILE_CANT_OPEN_RECOVERY_FILE);
         },
     };
 
-    println!("write file success, write size: {}.", write_size);
-    sgx_status_t::SGX_SUCCESS
+    println!("File written successfully, write size: {}.", write_size);
+    Ok(())
 }
 
-fn read_rsa_key(path: &str) -> sgx_status_t {
+fn read_rsa_key(path: &str) -> Result<(), sgx_status_t> {
     let mut file = match SgxFile::open(path) {
         Ok(f) => f,
         Err(_) => {
             println!("SgxFile::open failed.");
-            return sgx_status_t::SGX_ERROR_FILE_CANT_OPEN_RECOVERY_FILE;
+            return Err(sgx_status_t::SGX_ERROR_FILE_CANT_OPEN_RECOVERY_FILE);
         },
     };
 
@@ -146,40 +144,39 @@ fn read_rsa_key(path: &str) -> sgx_status_t {
         Ok(len) => len,
         Err(_) => {
             println!("SgxFile::read failed.");
-            return sgx_status_t::SGX_ERROR_FILE_BAD_STATUS;
+            return Err(sgx_status_t::SGX_ERROR_FILE_BAD_STATUS);
         },
     };
 
     if read_size == 0 {
         println!("{} file is empty.", path);
-        return sgx_status_t::SGX_ERROR_UNEXPECTED;
+        return Err(sgx_status_t::SGX_ERROR_UNEXPECTED);
     }
 
     let helper = DeSerializeHelper::<RSAKeyData>::new(data);
     let rsa_key_data = match helper.decode() {
         Some(d) => d,
         None => {
-            println!("decode data failed.");
-            return sgx_status_t::SGX_ERROR_UNEXPECTED;
+            println!("Decode data failed.");
+            return Err(sgx_status_t::SGX_ERROR_UNEXPECTED);
         },
     };
 
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     // 5 minutes before the deadline still needs to update the key
     if (rsa_key_data.not_befer > now as i64) | (rsa_key_data.not_after - ADVANCE_REFRESH_TIME < now as i64) {
-        println!("key not in time range.");
-        return sgx_status_t::SGX_ERROR_UNEXPECTED;
+        println!("Rsa key not in time range.");
+        return Err(sgx_status_t::SGX_ERROR_UNEXPECTED);
     }
 
-    unsafe {
-        RSA_KEY_DATA = Some(rsa_key_data.clone());
-    }
+    let mut rsa_data = RSA_KEY_DATA.lock().unwrap();
+    *rsa_data = Some(rsa_key_data);
 
-    // println!("read file success, read size: {}, {:?}.", read_size, rsa_key_data);
-    sgx_status_t::SGX_SUCCESS
+    println!("File read successfully, read size: {}.", read_size);
+    Ok(())
 }
 
-fn update_rsa_key(path: &str) -> sgx_status_t {
+fn update_rsa_key(path: &str) -> Result<(), sgx_status_t> {
 
     let mut n: Vec<u8> = vec![0_u8; SGX_RSA3072_KEY_SIZE];
     let mut d: Vec<u8> = vec![0_u8; SGX_RSA3072_KEY_SIZE];
@@ -190,42 +187,34 @@ fn update_rsa_key(path: &str) -> sgx_status_t {
     let mut dmq1: Vec<u8> = vec![0_u8; SGX_RSA3072_KEY_SIZE / 2];
     let mut iqmp: Vec<u8> = vec![0_u8; SGX_RSA3072_KEY_SIZE / 2];
 
-    let result = rsgx_create_rsa_key_pair(SGX_RSA3072_KEY_SIZE as i32,
-                                          SGX_RSA3072_PUB_EXP_SIZE as i32,
-                                          n.as_mut_slice(),
-                                          d.as_mut_slice(),
-                                          e.as_mut_slice(),
-                                          p.as_mut_slice(),
-                                          q.as_mut_slice(),
-                                          dmp1.as_mut_slice(),
-                                          dmq1.as_mut_slice(),
-                                          iqmp.as_mut_slice());
-
-    match result {
-        Err(x) => {
-            return x;
-        },
-        Ok(()) => {},
-    };
+    rsgx_create_rsa_key_pair(SGX_RSA3072_KEY_SIZE as i32,
+                            SGX_RSA3072_PUB_EXP_SIZE as i32,
+                            n.as_mut_slice(),
+                            d.as_mut_slice(),
+                            e.as_mut_slice(),
+                            p.as_mut_slice(),
+                            q.as_mut_slice(),
+                            dmp1.as_mut_slice(),
+                            dmq1.as_mut_slice(),
+                            iqmp.as_mut_slice())?;
 
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
 
-    unsafe {
-        RSA_KEY_DATA = Some(RSAKeyData {
-            modulus: n.clone().try_into().unwrap(),
-            d: d.clone().try_into().unwrap(),
-            e: e.clone().try_into().unwrap(),
-            not_befer: now as time_t,
-            not_after: (now + RSA_DURATION) as time_t,
-        });
+    {
+        let mut rsa_data = RSA_KEY_DATA.lock().unwrap();
+        *rsa_data = Some(RSAKeyData {
+                    modulus: n.clone().try_into().unwrap(),
+                    d: d.clone().try_into().unwrap(),
+                    e: e.clone().try_into().unwrap(),
+                    not_befer: now as time_t,
+                    not_after: (now + RSA_DURATION) as time_t,
+                });
     }
 
-    match write_rsa_key(path) {
-        sgx_status_t::SGX_SUCCESS => (),
-        other => return other,
-    };
+    write_rsa_key(path)?;
 
-    sgx_status_t::SGX_SUCCESS
+    println!("Rsa key updated successfully !");
+    Ok(())
 }
 
 #[no_mangle]
@@ -233,11 +222,11 @@ pub unsafe extern "C" fn init_rsa_key() -> sgx_status_t {
     let rsa_key_path = "RSA_KEY";
 
     match read_rsa_key(rsa_key_path) {
-        sgx_status_t::SGX_SUCCESS => (),
-        _ => {
+        Ok(_) => (),
+        Err(_) => {
             match update_rsa_key(rsa_key_path) {
-                sgx_status_t::SGX_SUCCESS => (),
-                other => return other
+                Ok(_) => (),
+                Err(x) => return x
             };
         }
     };

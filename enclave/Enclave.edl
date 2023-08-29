@@ -28,11 +28,18 @@ enclave {
     trusted {
         /* define ECALLs here. */
 
-        public sgx_status_t init_rsa_key();
+        public sgx_status_t run_server();
 
     };
 
     untrusted {
+        sgx_status_t ocall_get_target_info([out] sgx_target_info_t *ti);
         
+        sgx_status_t ocall_generate_quote(
+            [in] sgx_report_t *p_report,
+            [out, size = max_quote_len] uint8_t *p_quote,
+            uint32_t max_quote_len,
+            [out] uint32_t* p_quote_len
+        );
     };
 };

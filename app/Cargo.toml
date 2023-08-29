@@ -7,7 +7,3 @@ build = "build.rs"
 [dependencies]
 sgx_types = { path = "../deps/rust-sgx-sdk/sgx_types" }
 sgx_urts = { path = "../deps/rust-sgx-sdk/sgx_urts" }
-
-#[patch.'https://github.com/apache/teaclave-sgx-sdk.git']
-#sgx_types = { path = "../deps/rust-sgx-sdk/sgx_types" }
-#sgx_urts = { path = "../deps/rust-sgx-sdk/sgx_urts" }

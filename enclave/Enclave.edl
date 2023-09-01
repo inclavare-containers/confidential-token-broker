@@ -23,6 +23,7 @@ enclave {
     from "sgx_fs.edl" import *;
     from "sgx_tstdc.edl" import *;
     from "sgx_file.edl" import *;
+    from "sgx_env.edl" import *;
     include "sgx_report.h"
 
     trusted {

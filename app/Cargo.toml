@@ -7,3 +7,5 @@ build = "build.rs"
 [dependencies]
 sgx_types = { path = "../deps/rust-sgx-sdk/sgx_types" }
 sgx_urts = { path = "../deps/rust-sgx-sdk/sgx_urts" }
+log = "0.4"
+env_logger = "0.10"

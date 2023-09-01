@@ -39,6 +39,8 @@ itertools   = { version = "0.8" , default-features = false, features = []}
 rustls      = { git = "https://github.com/mesalock-linux/rustls", branch = "mesalock_sgx" }
 webpki-roots= { git = "https://github.com/mesalock-linux/webpki-roots", branch = "mesalock_sgx" }
 lazy_static = { version = "1.4.0", default-features = false, features = ["spin_no_std"] }
+log = { git = "https://github.com/mesalock-linux/log-sgx" }
+env_logger = { git = "https://github.com/mesalock-linux/env_logger-sgx" }
 
 [patch.'https://github.com/apache/teaclave-sgx-sdk.git']
 sgx_tstd = { path = "../deps/rust-sgx-sdk/sgx_tstd" }

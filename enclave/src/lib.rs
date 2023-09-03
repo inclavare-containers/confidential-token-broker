@@ -289,6 +289,7 @@ fn generate_quote() -> Result<Vec<u8>, sgx_status_t> {
     let hash_public_key = rsgx_sha256_slice(public_key.as_slice()).unwrap();
     let mut data = [0; 64];
     data[..hash_public_key.len()].copy_from_slice(&hash_public_key);
+    debug!("Hash(Rsa Public Key) : {:?}", data);
     let report_data: sgx_report_data_t = sgx_report_data_t { d: data };
     let mut report = match rsgx_create_report(&ti, &report_data) {
         Ok(report) => report,
@@ -324,6 +325,108 @@ fn generate_quote() -> Result<Vec<u8>, sgx_status_t> {
     Ok(return_quote_buf[0..quote_len as usize].to_vec())
 }
 
+fn get_x509_cert() -> Result<String, sgx_status_t> {
+    let quote = generate_quote()?;
+
+    info!("Call get_x509_cert()");
+    let rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
+    let rsa3072_key = sgx_rsa3072_key_t {
+        modulus: rsa_key_data.modulus.clone().try_into().unwrap(),
+        d: rsa_key_data.d.clone().try_into().unwrap(),
+        e: rsa_key_data.e.clone().try_into().unwrap(),
+    };
+
+    // Generate Certificate DER
+    let cert_der = yasna::construct_der(|writer| {
+        writer.write_sequence(|writer| {
+            writer.next().write_sequence(|writer| {
+                // Certificate Version
+                writer.next().write_tagged(yasna::Tag::context(0), |writer| {
+                    writer.write_i8(2);
+                });
+                // Certificate Serial Number (unused but required)
+                writer.next().write_u8(1);
+                // Signature Algorithm: rsa-with-SHA256
+                writer.next().write_sequence(|writer| {
+                    writer.next().write_oid(&ObjectIdentifier::from_slice(&[1,2,840,113549,1,1,11]));
+                });
+                // Issuer: CN=MesaTEE (unused but required)
+                writer.next().write_sequence(|writer| {
+                    writer.next().write_set(|writer| {
+                        writer.next().write_sequence(|writer| {
+                            writer.next().write_oid(&ObjectIdentifier::from_slice(&[2,5,4,3]));
+                            writer.next().write_utf8_string(&ISSUER);
+                        });
+                    });
+                });
+                // Validity: Issuing/Expiring Time (unused but required)
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                let issue_ts = TzUtc.timestamp(now.as_secs() as i64, 0);
+                let expire = now + Duration::days(CERTEXPIRYDAYS).to_std().unwrap();
+                let expire_ts = TzUtc.timestamp(expire.as_secs() as i64, 0);
+                writer.next().write_sequence(|writer| {
+                    writer.next().write_utctime(&yasna::models::UTCTime::from_datetime(&issue_ts));
+                    writer.next().write_utctime(&yasna::models::UTCTime::from_datetime(&expire_ts));
+                });
+                // Subject: CN=MesaTEE (unused but required)
+                writer.next().write_sequence(|writer| {
+                    writer.next().write_set(|writer| {
+                        writer.next().write_sequence(|writer| {
+                            writer.next().write_oid(&ObjectIdentifier::from_slice(&[2,5,4,3]));
+                            writer.next().write_utf8_string(&SUBJECT);
+                        });
+                    });
+                });
+                // SubjectPublicKeyInfo
+                writer.next().write_sequence(|writer| {
+                    // Public Key Algorithm
+                    writer.next().write_sequence(|writer| {
+                        // id-rsaPublicKey
+                        writer.next().write_oid(&ObjectIdentifier::from_slice(&[1,2,840,113549,1,1,1]));
+                        writer.next().write_null();
+                    });
+                    // RSA Public Key
+                    let sig_der = yasna::construct_der(|writer| {
+                        writer.write_sequence(|writer| {
+                            // modulus
+                            writer.next().write_biguint(&BigUint::from_bytes_be(&rsa3072_key.modulus));
+                            writer.next().write_biguint(&BigUint::from_bytes_be(&rsa3072_key.e));
+                        });
+                    });
+                    writer.next().write_bitvec(&BitVec::from_bytes(&sig_der));
+                });
+                // Certificate V3 Extension
+                writer.next().write_tagged(yasna::Tag::context(3), |writer| {
+                    writer.write_sequence(|writer| {
+                        writer.next().write_sequence(|writer| {
+                            writer.next().write_oid(&ObjectIdentifier::from_slice(&[1,2,840,113741,1,13,1]));
+                            writer.next().write_bytes(&quote);
+                        });
+                    });
+                });
+            });
+            // Signature Algorithm: rsa-with-SHA256
+            writer.next().write_sequence(|writer| {
+                writer.next().write_oid(&ObjectIdentifier::from_slice(&[1,2,840,113549,1,1,11]));
+            });
+            // Signature
+            let sig = {
+                let tbs = &writer.buf[4..];
+                rsgx_rsa3072_sign_slice(tbs, &rsa3072_key).unwrap().signature
+            };
+            writer.next().write_bitvec(&BitVec::from_bytes(&sig));
+        });
+    });
+
+    // Base64 encode
+    let x509_cert = base64::encode(&cert_der);
+  
+    // add PEM header and ending
+    let x509_cert_pem = format!("-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----", x509_cert);
+
+    Ok(x509_cert_pem)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn run_server() -> sgx_status_t {
     env_logger::Builder::new()
@@ -338,16 +441,14 @@ pub unsafe extern "C" fn run_server() -> sgx_status_t {
         }
     };
 
-    let quote = match generate_quote() {
-        Ok(x) => {
-            info!("Generate Quote successfully!");
-            x
-        }
+    let x509_cert = match get_x509_cert() {
+        Ok(x) => x,
         Err(x) => {
-            error!("Failed to generate quote");
+            error!("Unable to generate x509 certificate");
             return x;
         }
     };
+    debug!("{}", x509_cert);
 
     sgx_status_t::SGX_SUCCESS
 }

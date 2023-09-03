@@ -5,7 +5,7 @@ extern crate env_logger;
 
 use sgx_types::*;
 use sgx_urts::SgxEnclave;
-use log::{info, warn, error, LevelFilter};
+use log::{info, error, LevelFilter};
 use env_logger::Builder;
 
 static ENCLAVE_FILE: &'static str = "enclave.signed.so";

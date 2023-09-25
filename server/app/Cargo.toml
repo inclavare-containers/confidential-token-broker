@@ -2,6 +2,7 @@
 name = "app"
 version = "1.0.0"
 authors = ["The Teaclave Authors"]
+edition = "2021"
 build = "build.rs"
 
 [dependencies]
@@ -9,3 +10,8 @@ sgx_types = { path = "../deps/rust-sgx-sdk/sgx_types" }
 sgx_urts = { path = "../deps/rust-sgx-sdk/sgx_urts" }
 log = "0.4"
 env_logger = "0.10"
+actix-web = { version = "3.3.3", features = ["openssl"] }
+openssl = { version = "0.10" }
+serde = "1.0"
+serde_json = "1.0"
+lazy_static = "1.4.0"

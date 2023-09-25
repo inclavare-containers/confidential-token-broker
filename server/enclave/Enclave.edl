@@ -24,13 +24,25 @@ enclave {
     from "sgx_tstdc.edl" import *;
     from "sgx_file.edl" import *;
     from "sgx_env.edl" import *;
+    from "sgx_net.edl" import *;
     include "sgx_report.h"
 
     trusted {
         /* define ECALLs here. */
 
-        public sgx_status_t run_server();
-
+        public sgx_status_t init_tee();
+        public sgx_status_t get_access_token(
+            [in, size = id_token_len] const uint8_t *id_token,
+            size_t id_token_len,
+            [out, size = max_token_len] uint8_t *access_token,
+            size_t max_token_len,
+            [out] size_t* access_token_len
+        );
+        public sgx_status_t get_tee_jwks(
+            [out, size = max_jwks_len] uint8_t *tee_jwks,
+            size_t max_jwks_len,
+            [out] size_t* tee_jwks_len
+        );
     };
 
     untrusted {
@@ -41,6 +53,14 @@ enclave {
             [out, size = max_quote_len] uint8_t *p_quote,
             uint32_t max_quote_len,
             [out] uint32_t* p_quote_len
+        );
+
+        sgx_status_t ocall_read_file(
+            [in, size = path_len] const uint8_t *path,
+            size_t path_len,
+            [out, size = max_content_len] uint8_t *file_content, 
+            size_t max_content_len, 
+            [out] size_t* content_len
         );
     };
 };

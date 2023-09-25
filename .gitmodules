@@ -1,3 +1,3 @@
-[submodule "deps/rust-sgx-sdk"]
-	path = deps/rust-sgx-sdk
+[submodule "server/deps/rust-sgx-sdk"]
+	path = server/deps/rust-sgx-sdk
 	url = https://github.com/apache/incubator-teaclave-sgx-sdk.git

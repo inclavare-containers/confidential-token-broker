@@ -21,12 +21,17 @@ sgx_tstd = { path = "../deps/rust-sgx-sdk/sgx_tstd" }
 sgx_tcrypto = { path = "../deps/rust-sgx-sdk/sgx_tcrypto" }
 sgx_tse = { path = "../deps/rust-sgx-sdk/sgx_tse" }
 sgx_serialize = { path = "../deps/rust-sgx-sdk/sgx_serialize" }
+sgx_tunittest = { path = "../deps/rust-sgx-sdk/sgx_tunittest"}
+sgx_alloc = { path = "../deps/rust-sgx-sdk/sgx_alloc" }
+sgx_libc = { path = "../deps/rust-sgx-sdk/sgx_libc" }
 
 [dependencies]
+sgx_align_struct_attribute = { path = "../deps/rust-sgx-sdk/sgx_align_struct_attribute" }
 sgx_rand_derive = { path = "../deps/rust-sgx-sdk/sgx_rand_derive" }
 sgx_serialize_derive = { path = "../deps/rust-sgx-sdk/sgx_serialize_derive" }
 serde = { git = "https://github.com/mesalock-linux/serde-sgx" }
 serde_derive = { git = "https://github.com/mesalock-linux/serde-sgx" }
+serde_json = { git = "https://github.com/mesalock-linux/serde-json-sgx" }
 serde_cbor = { git = "https://github.com/mesalock-linux/cbor-sgx" }
 chrono      = { git = "https://github.com/mesalock-linux/chrono-sgx" }
 webpki      = { git = "https://github.com/mesalock-linux/webpki", branch = "mesalock_sgx" }
@@ -41,6 +46,8 @@ webpki-roots= { git = "https://github.com/mesalock-linux/webpki-roots", branch =
 lazy_static = { version = "1.4.0", default-features = false, features = ["spin_no_std"] }
 log = { git = "https://github.com/mesalock-linux/log-sgx" }
 env_logger = { git = "https://github.com/mesalock-linux/env_logger-sgx" }
+jsonwebtoken = { git = "https://github.com/mesalock-linux/jsonwebtoken-sgx"}
+http_req = { git = "https://github.com/mesalock-linux/http_req-sgx" }
 
 [patch.'https://github.com/apache/teaclave-sgx-sdk.git']
 sgx_tstd = { path = "../deps/rust-sgx-sdk/sgx_tstd" }

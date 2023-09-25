@@ -1,0 +1,15 @@
+{
+	"configs": [
+		{
+			"idp": "https://dev-f3qm0elg4mvfgpsu.us.auth0.com/",
+			"jwk_endpoint": "https://dev-f3qm0elg4mvfgpsu.us.auth0.com/.well-known/jwks.json",
+			"client_id": "IMIprdP4qfSuKANevWkJyhG5F7weEGT0",
+			"server_api": [
+				"https://example.com/server1-api",
+				"https://example.com/server2-api"
+			],
+			"scope": "openid profile read:admin",
+			"expiration": 3600
+		}
+	]
+}

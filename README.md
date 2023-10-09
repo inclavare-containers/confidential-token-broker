@@ -11,6 +11,8 @@ This project is based on the hardware-level protection provided by the Trusted E
 - Protect the trustworthiness of the public key corresponding to the private key used for issuing tokens with the help of Intel sgx remote attestation capability.
 - Convert Idp's id token into an access token and issue it to the resource requesting user according to the configuration rules.
 
+![OSPP-Sequence Diagram](./img/OSPP-Sequence%20Diagram.svg)
+
 ## Prerequisites
 
 ### Supported HW

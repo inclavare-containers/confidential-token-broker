@@ -119,6 +119,10 @@ async fn update_jwks(url: &str) -> Result<(), String> {
                 match res {
                     Ok((colla_exp_stat, qv_result)) => {
                         info!("collateral_expiration_status: {}, quote_verification_result: {:?}", colla_exp_stat, qv_result);
+                        if colla_exp_stat != 0 || qv_result != sgx_ql_qv_result_t::SGX_QL_QV_RESULT_OK {
+                            continue;
+                        }
+
                         let report_date = quote3.report_body.report_data.d;
 
                         let public_key = format!("{{n: {}, e: {}}}", n, e);

@@ -21,7 +21,6 @@ use yasna::models::ObjectIdentifier;
 
 use std::untrusted::fs::remove_file;
 
-const CERTEXPIRYDAYS: i64 = 90i64;
 const ISSUER: &str = "confidential-token-broker";
 const SUBJECT: &str = "confidential-token-broker";
 
@@ -39,8 +38,8 @@ struct RSAKeyData {
     not_after: time_t,
 }
 
-const RSA_DURATION: u64 = 604800;
-const ADVANCE_REFRESH_TIME: i64 = 300;
+pub const RSA_DURATION: i64 = 60 * 60 * 24 * 90;
+pub const ADVANCE_REFRESH_TIME: i64 = 60 * 60 * 2;
 const RSA_KEY_PATH: &str = "RSA_KEY";
 
 lazy_static! {
@@ -190,7 +189,7 @@ fn update_rsa_key(path: &str) -> SgxError {
             dmq1: dmq1.clone().try_into().unwrap(),
             iqmp: iqmp.clone().try_into().unwrap(),
             not_befer: now as time_t,
-            not_after: (now + RSA_DURATION) as time_t,
+            not_after: (now as i64 + RSA_DURATION) as time_t,
         });
     }
 
@@ -216,14 +215,21 @@ pub fn get_base64url_n() -> SgxResult<String> {
     let rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
     let mut n = rsa_key_data.modulus.clone();
     n.reverse();
-    Ok(base64::encode_config(n, base64::URL_SAFE_NO_PAD))
+    let big_num_n = BigUint::from_bytes_be(n.as_slice()).to_bytes_be();
+    Ok(base64::encode_config(big_num_n, base64::URL_SAFE_NO_PAD))
 }
 
 pub fn get_base64url_e() -> SgxResult<String> {
     let rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
     let mut e = rsa_key_data.e.clone();
     e.reverse();
-    Ok(base64::encode_config(e, base64::URL_SAFE_NO_PAD))
+    let big_num_e = BigUint::from_bytes_be(e.as_slice()).to_bytes_be();
+    Ok(base64::encode_config(big_num_e, base64::URL_SAFE_NO_PAD))
+}
+
+pub fn get_not_after() -> SgxResult<time_t> {
+    let rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
+    Ok(rsa_key_data.not_after)
 }
 
 pub fn get_rsa_private_key_pem() -> SgxResult<String> {
@@ -299,30 +305,30 @@ pub fn get_rsa_private_key_pem() -> SgxResult<String> {
 fn generate_quote() -> SgxResult<Vec<u8>> {
     info!("Call generate_quote()");
 
-    let mut rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
+    // let mut rsa_key_data: RSAKeyData = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap();
 
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    // 5 minutes before the deadline still needs to update the key
-    if (rsa_key_data.not_befer > now as i64)
-        | (rsa_key_data.not_after - ADVANCE_REFRESH_TIME < now as i64)
-    {
-        warn!("Rsa key not in time range. Generate new RSA key as quote customization data");
-        match update_rsa_key(RSA_KEY_PATH) {
-            Ok(_) => rsa_key_data = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap(),
-            Err(x) => {
-                error!("update_rsa_key() failed for quote");
-                return Err(x);
-            }
-        };
-    }
+    // let now = SystemTime::now()
+    //     .duration_since(SystemTime::UNIX_EPOCH)
+    //     .unwrap()
+    //     .as_secs();
+    // 2 hours before the deadline still needs to update the key
+    // if (rsa_key_data.not_befer > now as i64)
+    //     | (rsa_key_data.not_after - ADVANCE_REFRESH_TIME < now as i64)
+    // {
+    //     warn!("Rsa key not in time range. Generate new RSA key as quote customization data");
+    //     match update_rsa_key(RSA_KEY_PATH) {
+    //         Ok(_) => rsa_key_data = (*RSA_KEY_DATA.lock().unwrap()).clone().unwrap(),
+    //         Err(x) => {
+    //             error!("update_rsa_key() failed for quote");
+    //             return Err(x);
+    //         }
+    //     };
+    // }
 
-    let rsa3072_public_key = sgx_rsa3072_public_key_t {
-        modulus: rsa_key_data.modulus.clone().try_into().unwrap(),
-        exponent: rsa_key_data.e.clone().try_into().unwrap(),
-    };
+    // let rsa3072_public_key = sgx_rsa3072_public_key_t {
+    //     modulus: rsa_key_data.modulus.clone().try_into().unwrap(),
+    //     exponent: rsa_key_data.e.clone().try_into().unwrap(),
+    // };
 
     let mut rt: sgx_status_t = sgx_status_t::SGX_ERROR_UNEXPECTED;
     let mut ti: sgx_target_info_t = sgx_target_info_t::default();
@@ -333,11 +339,13 @@ fn generate_quote() -> SgxResult<Vec<u8>> {
         return Err(sgx_status_t::SGX_ERROR_UNEXPECTED);
     }
 
-    let mut public_key: Vec<u8> = Vec::new();
-    public_key.extend(&rsa3072_public_key.modulus);
-    public_key.extend(&rsa3072_public_key.exponent);
+    let public_key = format!("{{n: {}, e: {}}}", get_base64url_n().unwrap(), get_base64url_e().unwrap());
+    debug!("{:?}", public_key.clone());
+    // let mut public_key: Vec<u8> = Vec::new();
+    // public_key.extend(&rsa3072_public_key.modulus);
+    // public_key.extend(&rsa3072_public_key.exponent);
 
-    let hash_public_key = rsgx_sha256_slice(public_key.as_slice()).unwrap();
+    let hash_public_key = rsgx_sha256_slice(public_key.as_bytes()).unwrap();
     let mut data = [0; 64];
     data[..hash_public_key.len()].copy_from_slice(&hash_public_key);
     debug!("Hash(Rsa Public Key) : {:?}", data);
@@ -417,10 +425,9 @@ pub fn get_x509_cert() -> SgxResult<String> {
                     });
                 });
                 // Validity: Issuing/Expiring Time (unused but required)
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-                let issue_ts = TzUtc.timestamp(now.as_secs() as i64, 0);
-                let expire = now + Duration::days(CERTEXPIRYDAYS).to_std().unwrap();
-                let expire_ts = TzUtc.timestamp(expire.as_secs() as i64, 0);
+                // let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                let issue_ts = TzUtc.timestamp(rsa_key_data.not_befer as i64, 0);
+                let expire_ts = TzUtc.timestamp(rsa_key_data.not_after as i64, 0);
                 writer.next().write_sequence(|writer| {
                     writer
                         .next()
@@ -453,13 +460,20 @@ pub fn get_x509_cert() -> SgxResult<String> {
                     // RSA Public Key
                     let sig_der = yasna::construct_der(|writer| {
                         writer.write_sequence(|writer| {
-                            // modulus
+                            // modulus and e
+                            let mut n = rsa3072_key.modulus.to_vec().clone();
+                            let mut e = rsa3072_key.e.to_vec().clone();
+                            n.reverse();
+                            e.reverse();
+                            let big_num_n = BigUint::from_bytes_be(n.as_slice()).to_bytes_be();
+                            let big_num_e = BigUint::from_bytes_be(e.as_slice()).to_bytes_be();
+
                             writer
                                 .next()
-                                .write_biguint(&BigUint::from_bytes_be(&rsa3072_key.modulus));
+                                .write_biguint(&BigUint::from_bytes_be(big_num_n.as_slice()));
                             writer
                                 .next()
-                                .write_biguint(&BigUint::from_bytes_be(&rsa3072_key.e));
+                                .write_biguint(&BigUint::from_bytes_be(big_num_e.as_slice()));
                         });
                     });
                     writer.next().write_bitvec(&BitVec::from_bytes(&sig_der));
@@ -542,6 +556,47 @@ pub fn init_rsa_key() -> SgxError {
 
     Ok(())
 }
+
+pub fn get_tee_jwk() -> SgxResult<String> {
+    let x509_cert = match get_x509_cert() {
+        Ok(x) => x,
+        Err(x) => {
+            error!("Get x509 cert failed");
+            return Err(x);
+        }
+    };
+    let rsa_sha256 = match get_base64url_rsa_data_sha256() {
+        Ok(x) => x,
+        Err(x) => {
+            error!("Get sha256(rsa key) failed");
+            return Err(x);
+        }
+    };
+    let n = match get_base64url_n() {
+        Ok(x) => x,
+        Err(x) => {
+            error!("Get modulus vlaue failed");
+            return Err(x);
+        }
+    };
+    let e = match get_base64url_e() {
+        Ok(x) => x,
+        Err(x) => {
+            error!("Get e value failed");
+            return Err(x);
+        }
+    };
+
+    let tee_jwks_string = format!(
+        r#"{{"kty":"RSA","use":"sig","n":"{}","e":"{}","kid":"{}","x5c":["{}"],"alg": "RS256"}}"#,
+        n, e, rsa_sha256, x509_cert
+    );
+
+    debug!("{:?}", tee_jwks_string.clone());
+
+    Ok(tee_jwks_string)
+}
+
 
 pub fn test_write_rsa_key() {
     let test_key: RSAKeyData = RSAKeyData {

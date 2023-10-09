@@ -237,7 +237,7 @@ async fn jwks(_req: HttpRequest) -> impl Responder {
     };
     info!("Generating jwks");
 
-    format!("{{\"Jwks\": \"{}\"}}\n", res)
+    format!("{}", res)
 }
 
 #[actix_web::main]

@@ -1,0 +1,25 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sgx_types = { git = "https://github.com/apache/teaclave-sgx-sdk.git" }
+log = "0.4"
+env_logger = "0.10"
+actix-web = { version = "3.3.3", features = ["openssl"] }
+openssl = { version = "0.10" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rustls = { version = "0.19", features = ["dangerous_configuration"] }
+x509-parser = "0.10"
+base64 = "0.20"
+sha256 = "1.4"
+intel-tee-quote-verification-rs = "0.2"
+intel-tee-quote-verification-sys = "0.2"
+lazy_static = "1.4.0"
+hex = "0.4"
+jsonwebtoken = "7.2"

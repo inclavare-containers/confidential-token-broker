@@ -54,10 +54,19 @@ use sgx_types::*;
 use std::prelude::v1::*;
 use std::slice;
 use std::string::String;
+use std::sync::SgxMutex;
+use std::collections::HashMap;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 mod auth;
 mod rsa;
 mod test;
+
+
+lazy_static! {
+    static ref JWK_INFO: SgxMutex<HashMap<i64, String>> = SgxMutex::new(HashMap::new());
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn init_tee() -> sgx_status_t {
@@ -101,41 +110,45 @@ pub extern "C" fn get_tee_jwks(
     max_jwks_len: usize,
     tee_jwks_len: *mut usize,
 ) -> sgx_status_t {
-    let x509_cert = match rsa::get_x509_cert() {
-        Ok(x) => x,
-        Err(x) => {
-            error!("Get x509 cert failed");
-            return x;
+    let mut jwk_info = JWK_INFO.lock().unwrap();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+    if jwk_info.len() == 0 {
+        let jwk = rsa::get_tee_jwk().unwrap();
+        let not_after = rsa::get_not_after().unwrap();
+        jwk_info.insert(not_after, jwk.clone());
+    } else {
+        let mut key_remove: Vec<i64> = Vec::new();
+        let mut vaild_jwk_num = 0;
+        for not_after in jwk_info.keys() {
+            if *not_after < now as i64 {
+                key_remove.push(*not_after);
+            } else if *not_after - rsa::ADVANCE_REFRESH_TIME > now as i64 {
+                vaild_jwk_num = vaild_jwk_num + 1;
+            }
         }
-    };
-    let rsa_sha256 = match rsa::get_base64url_rsa_data_sha256() {
-        Ok(x) => x,
-        Err(x) => {
-            error!("Get sha256(rsa key) failed");
-            return x;
+
+        // Remove invalid jwk
+        for key in key_remove {
+            jwk_info.remove(&key);
         }
-    };
-    let n = match rsa::get_base64url_n() {
-        Ok(x) => x,
-        Err(x) => {
-            error!("Get modulus vlaue failed");
-            return x;
+
+        if vaild_jwk_num == 0 {
+            let jwk = rsa::get_tee_jwk().unwrap();
+            let not_after = rsa::get_not_after().unwrap();
+            jwk_info.insert(not_after, jwk.clone());
         }
-    };
-    let e = match rsa::get_base64url_e() {
-        Ok(x) => x,
-        Err(x) => {
-            error!("Get e value failed");
-            return x;
-        }
-    };
+    }
+
+    let mut tee_jwks_str: String = "".to_string();
+    for value in jwk_info.values() {
+        tee_jwks_str += &value;
+        tee_jwks_str += &",".to_string();
+    }
+    tee_jwks_str.pop();
 
     let tee_jwks_string = format!(
-        r#"{{"keys":[{{"kty":"RSA","use":"sig","n":{},"e":{},"kid":{},"x5c":[{}],"alg": "RS256"}}]}}"#,
-        n, e, rsa_sha256, x509_cert
-    );
-
-    debug!("{:?}", tee_jwks_string.clone());
+        r#"{{"keys":[{}]}}"#, tee_jwks_str);
 
     if tee_jwks_string.len() > max_jwks_len {
         warn!(
@@ -168,7 +181,7 @@ pub extern "C" fn get_access_token(
 
     let id_token_slice = unsafe { slice::from_raw_parts(id_token, id_token_len) };
     let id_token: String = String::from_utf8(id_token_slice.to_vec()).unwrap();
-    info!("enclave: {}", id_token);
+    debug!("enclave: {}", id_token);
     let access_token_string = match auth::get_access_token(id_token) {
         Ok(x) => x,
         Err(_) => {
@@ -176,6 +189,13 @@ pub extern "C" fn get_access_token(
             return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
+
+    let mut jwk_info = JWK_INFO.lock().unwrap();
+    let not_after = rsa::get_not_after().unwrap();
+    if jwk_info.get(&not_after).is_none() {
+        let jwk = rsa::get_tee_jwk().unwrap();
+        jwk_info.insert(not_after, jwk.clone());
+    }
 
     if access_token_string.len() > max_token_len {
         warn!(

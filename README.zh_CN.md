@@ -11,6 +11,8 @@
 - 借助Intel sgx远程证明能力保护签发令牌所用私钥对应的公钥可信
 - 根据配置规则将Idp的id token转换为access token颁发给资源请求用户
 
+![OSPP-Sequence Diagram](./img/OSPP-Sequence%20Diagram.zh_CN.svg)
+
 ## 准备工作
 
 ### 支持intel sgx的硬件
